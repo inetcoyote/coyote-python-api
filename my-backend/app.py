@@ -25,8 +25,9 @@ user_model = api.model('User', {
 
 # Временная "база данных"
 users = [
-    {"id": 1, "name": "Alice", "email": "alice@example.com"},
-    {"id": 2, "name": "Bob", "email": None}
+    {"id": 1, "name": "Coyote", "email": "coyote@example.com"},
+    {"id": 2, "name": "Dima", "email": "dima@test.com"},
+    {"id": 3, "name": "Baby", "email": None}
 ]
 
 
@@ -46,7 +47,7 @@ class UserList(Resource):
         """Создать нового пользователя"""
         data = request.get_json()
         if not data or 'name' not in data:
-            return {'error': 'Field "name" is required'}, 400
+            return {'error': 'Поле "name" обязательно для создания'}, 400
 
         new_id = max(u["id"] for u in users) + 1 if users else 1
         new_user = {
@@ -68,7 +69,7 @@ class User(Resource):
         user = next((u for u in users if u["id"] == user_id), None)
         if user:
             return user
-        ns.abort(404, "User not found")
+        ns.abort(404, "Запись не найдена")
 
     @ns.doc('update_user')
     @ns.expect(user_model)
@@ -77,11 +78,11 @@ class User(Resource):
         """Полное обновление пользователя"""
         user = next((u for u in users if u["id"] == user_id), None)
         if not user:
-            ns.abort(404, "User not found")
+            ns.abort(404, "Запись не найдена")
 
         data = request.get_json()
         if 'name' not in data:
-            return {'error': 'Field "name" is required'}, 400
+            return {'error': 'Поле "name" обязательно для обновления'}, 400
 
         user['name'] = data['name']
         user['email'] = data.get('email')
@@ -97,7 +98,7 @@ class User(Resource):
         """Частичное обновление пользователя"""
         user = next((u for u in users if u["id"] == user_id), None)
         if not user:
-            ns.abort(404, "User not found")
+            ns.abort(404, "Запись не найдена")
 
         data = request.get_json()
         if 'name' in data:
@@ -114,8 +115,8 @@ class User(Resource):
         users_before = len(users)
         users = [u for u in users if u["id"] != user_id]
         if len(users) == users_before:
-            ns.abort(404, "User not found")
-        return {'message': 'User deleted successfully'}, 200
+            ns.abort(404, "Запись не найдена")
+        return {'message': 'Запись удалена успешно'}, 200
 
 
 # === Запуск приложения ===
