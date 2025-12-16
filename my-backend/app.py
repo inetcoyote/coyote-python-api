@@ -1,7 +1,27 @@
-from flask import Flask, request, jsonify
+from flask import Flask
+from flask_restx import Api, Resource, fields
+from flask import jsonify, request
 
-# Создаём приложение Flask
 app = Flask(__name__)
+
+# === Настройка API и Swagger ===
+api = Api(
+    app,
+    version='1.0',
+    title='User API',
+    description='API для управления пользователями с Swagger UI',
+    doc='/swagger/'  # Swagger будет доступен по /swagger/
+)
+
+# Неймспейс (группировка путей)
+ns = api.namespace('users', description='Операции с пользователями')
+
+# Модель данных для Swagger (для документации тела запроса)
+user_model = api.model('User', {
+    'id': fields.Integer(readonly=True, description='ID пользователя'),
+    'name': fields.String(required=True, description='Имя пользователя'),
+    'email': fields.String(description='Email пользователя')
+})
 
 # Временная "база данных"
 users = [
@@ -9,83 +29,93 @@ users = [
     {"id": 2, "name": "Bob", "email": None}
 ]
 
-# === Обработка HTTP-запросов ===
 
-# GET / — проверка работоспособности
-@app.route('/', methods=['GET'])
-def home():
-    return jsonify({"message": "API is running!"}), 200
+# === Ресурс для работы с пользователями ===
+@ns.route('/')
+class UserList(Resource):
+    @ns.doc('list_users')
+    @ns.marshal_list_with(user_model)
+    def get(self):
+        """Получить список всех пользователей"""
+        return users
 
-# GET /users — получить всех пользователей
-@app.route('/users', methods=['GET'])
-def get_users():
-    return jsonify(users), 200
+    @ns.doc('create_user')
+    @ns.expect(user_model)
+    @ns.marshal_with(user_model, code=201)
+    def post(self):
+        """Создать нового пользователя"""
+        data = request.get_json()
+        if not data or 'name' not in data:
+            return {'error': 'Field "name" is required'}, 400
 
-# GET /users/<id> — получить пользователя по ID
-@app.route('/users/<int:user_id>', methods=['GET'])
-def get_user(user_id):
-    user = next((u for u in users if u["id"] == user_id), None)
-    if user:
-        return jsonify(user), 200
-    return jsonify({"error": "User not found"}), 404
+        new_id = max(u["id"] for u in users) + 1 if users else 1
+        new_user = {
+            "id": new_id,
+            "name": data["name"],
+            "email": data.get("email")
+        }
+        users.append(new_user)
+        return new_user, 201
 
-# POST /users — создать нового пользователя
-@app.route('/users', methods=['POST'])
-def create_user():
-    data = request.get_json()
-    if not data or 'name' not in data:
-        return jsonify({"error": "Field 'name' is required"}), 400
 
-    new_id = max(u["id"] for u in users) + 1 if users else 1
-    new_user = {
-        "id": new_id,
-        "name": data["name"],
-        "email": data.get("email")  # может быть None
-    }
-    users.append(new_user)
-    return jsonify(new_user), 201
+@ns.route('/<int:user_id>')
+@ns.param('user_id', 'ID пользователя')
+class User(Resource):
+    @ns.doc('get_user')
+    @ns.marshal_with(user_model)
+    def get(self, user_id):
+        """Получить пользователя по ID"""
+        user = next((u for u in users if u["id"] == user_id), None)
+        if user:
+            return user
+        ns.abort(404, "User not found")
 
-# PUT /users/<id> — полное обновление пользователя
-@app.route('/users/<int:user_id>', methods=['PUT'])
-def update_user(user_id):
-    data = request.get_json()
-    user = next((u for u in users if u["id"] == user_id), None)
-    if not user:
-        return jsonify({"error": "User not found"}), 404
+    @ns.doc('update_user')
+    @ns.expect(user_model)
+    @ns.marshal_with(user_model)
+    def put(self, user_id):
+        """Полное обновление пользователя"""
+        user = next((u for u in users if u["id"] == user_id), None)
+        if not user:
+            ns.abort(404, "User not found")
 
-    if 'name' not in data:
-        return jsonify({"error": "Field 'name' is required"}), 400
+        data = request.get_json()
+        if 'name' not in data:
+            return {'error': 'Field "name" is required'}, 400
 
-    user['name'] = data['name']
-    user['email'] = data.get('email')  # обновляем email, если передан
-
-    return jsonify(user), 200
-
-# ✅ PATCH /users/<id> — частичное обновление (например, только имя ИЛИ email)
-@app.route('/users/<int:user_id>', methods=['PATCH'])
-def patch_user(user_id):
-    data = request.get_json()
-    user = next((u for u in users if u["id"] == user_id), None)
-    if not user:
-        return jsonify({"error": "User not found"}), 404
-
-    # Обновляем только те поля, которые прислали
-    if 'name' in data:
         user['name'] = data['name']
-    if 'email' in data:
-        user['email'] = data['email']  # может быть None
+        user['email'] = data.get('email')
+        return user
 
-    return jsonify(user), 200
+    @ns.doc('patch_user')
+    @ns.expect(api.model('UserPatch', {
+        'name': fields.String(description='Новое имя'),
+        'email': fields.String(description='Новый email')
+    }))
+    @ns.marshal_with(user_model)
+    def patch(self, user_id):
+        """Частичное обновление пользователя"""
+        user = next((u for u in users if u["id"] == user_id), None)
+        if not user:
+            ns.abort(404, "User not found")
 
-# DELETE /users/<id> — удалить пользователя
-@app.route('/users/<int:user_id>', methods=['DELETE'])
-def delete_user(user_id):
-    global users
-    users_before = len(users)
-    users = [u for u in users if u["id"] != user_id]
-    if len(users) == users_before:
-        return jsonify({"error": "User not found"}), 404
-    return jsonify({"message": "User deleted successfully"}), 200
+        data = request.get_json()
+        if 'name' in data:
+            user['name'] = data['name']
+        if 'email' in data:
+            user['email'] = data['email']
+
+        return user
+
+    @ns.doc('delete_user')
+    def delete(self, user_id):
+        """Удалить пользователя"""
+        global users
+        users_before = len(users)
+        users = [u for u in users if u["id"] != user_id]
+        if len(users) == users_before:
+            ns.abort(404, "User not found")
+        return {'message': 'User deleted successfully'}, 200
 
 
 # === Запуск приложения ===
